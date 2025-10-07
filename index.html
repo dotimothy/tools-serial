@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiMa.ai Serial Console</title>
+    <link rel="icon" type="image/png" href="./media/favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #fullscreen-wrapper {
+            display: flex;
+            flex-direction: column;
+            position: relative; 
+        }
+        #terminal-container {
+            /* FIX 1: Removed fixed height to allow flex-grow to work properly */
+            /* height: 70vh; */ 
+            resize: vertical;
+            overflow: auto;
+            flex-grow: 1;
+            display: flex;
+            position: relative;
+        }
+        .terminal-instance {
+            width: 100%;
+            height: 100%;
+        }
+        .xterm .xterm-viewport {
+            width: 100% !important;
+        }
+        #fullscreen-wrapper:fullscreen {
+            padding: 1rem;
+        }
+        /* Tab Styles */
+        .tab {
+            @apply px-4 py-2 cursor-pointer border-b-2 border-transparent text-gray-500 dark:text-gray-400 mr-2 flex justify-between items-center min-w-[250px];
+            margin: 0.5em;
+            border-style: dotted;
+        }
+        .tab.active {
+            @apply border-cyan-500 text-cyan-600 dark:text-cyan-400;
+            border: 1px solid white;
+            border-radius: 1px;
+        }
+        .tab-close {
+            @apply ml-4 px-2 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600;
+            margin-left: 0.5em;
+        }
+    </style>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4 bg-white text-gray-900 dark:bg-gray-900 dark:text-white transition-colors duration-300">
+
+    <div class="w-full max-w-7xl bg-gray-100 dark:bg-gray-800 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-4 transition-colors duration-300 flex flex-col h-[90vh]">
+        
+        <div id="notSupported" class="hidden bg-red-100 dark:bg-red-900 border-l-4 border-red-500 text-red-700 dark:text-red-200 p-4 rounded-md" role="alert">
+            <h3 class="font-bold text-lg mb-2">Browser Not Supported</h3>
+            <p>This application requires the <strong>Web Serial API</strong>. Please use <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong>.</p>
+        </div>
+
+        <div id="main-app" class="flex flex-col flex-grow">
+            <div class="text-center">
+                <div class="flex justify-center items-center gap-4">
+                    <img src="./media/favicon.png" alt="SiMa.ai Favicon" class="h-8 w-8" onerror="this.onerror=null;this.src='https://placehold.co/32x32/FFFFFF/000000?text=S';">
+                    <h1 class="text-3xl font-bold text-cyan-600 dark:text-cyan-400">SiMa.ai Serial Console</h1>
+                    <img src="./media/favicon.png" alt="SiMa.ai Favicon" class="h-8 w-8" onerror="this.onerror=null;this.src='https://placehold.co/32x32/FFFFFF/000000?text=S';">
+                </div>
+                <p class="text-gray-600 dark:text-gray-400 mt-2">Connect and monitor your SiMa.ai Devkits directly from the browser.</p>
+            </div>
+
+            <div id="fullscreen-wrapper" class="bg-gray-100 dark:bg-gray-800 space-y-4 mt-4 transition-colors duration-300 flex flex-col flex-grow">
+                <div class="w-full bg-white dark:bg-black rounded-lg border border-gray-300 dark:border-gray-700 p-2 flex flex-col flex-grow">
+                    <div id="tabs-container" class="flex border-b border-gray-200 dark:border-gray-700"></div>
+                    <div id="terminal-container">
+                         <div id="initial-message" class="w-full h-full flex items-center justify-center text-gray-500">Click the [+] button in the command palette to start a new connection.</div>
+                    </div>
+                </div>
+
+                <div id="commandPalette" class="border-t border-gray-200 dark:border-gray-700 pt-2">
+                    <div class="relative h-5 mb-1">
+                        <button id="togglePaletteButton" class="absolute right-0 top-0 text-xs text-cyan-600 dark:text-cyan-400 hover:underline pr-2">[Hide]</button>
+                    </div>
+                    <div id="palette-content-wrapper">
+                        <div class="flex justify-center items-center mb-3">
+                            <p class="text-center text-gray-500 dark:text-gray-400 text-sm uppercase tracking-wider">Controls & Commands</p>
+                        </div>
+                        <div id="palette-buttons-container">
+                            <div class="flex flex-wrap gap-x-4 gap-y-2 justify-center items-center">
+                                <button id="newConnectionButton" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 flex items-center gap-2">[+] New Connection</button>
+                                <button id="settingsButton" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Settings</button>
+                                <div class="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+                                <button id="loginButton" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Login</button>
+                                <button id="networkingButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Networking</button>
+                                <button id="diskSpaceButton" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Disk Space</button>
+                                <button id="buildButton" class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Build</button>
+                                <button id="logoutButton" class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Logout</button>
+                                <div class="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+                                <button id="clearLogButton" class="bg-red-800 hover:bg-red-900 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Clear</button>
+                                <button id="themeToggleButton" class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-lg transition duration-300 flex items-center justify-center">
+                                    <svg class="w-6 h-6 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                                    <svg class="w-6 h-6 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                                </button>
+                                <button id="fullscreenButton" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg transition duration-300 flex items-center justify-center">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5"></path></svg>
+                                </button>
+                                <button id="helpButton" class="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded-lg transition duration-300 flex items-center justify-center">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="settingsModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden">
+                    <div class="bg-gray-100 dark:bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6 w-full max-w-md">
+                        <h2 class="text-2xl font-bold text-center text-cyan-600 dark:text-cyan-400">New Connection Settings</h2>
+                        <div>
+                            <label for="baudRate" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Baud Rate</label>
+                            <select id="baudRate" class="w-full bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <option>9600</option> <option>38400</option> <option>57600</option> <option selected>115200</option> <option>230400</option> <option>460800</option> <option>921600</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="flowControl" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Flow Control</label>
+                            <select id="flowControl" class="w-full bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                <option value="none" selected>None</option> <option value="hardware">Hardware</option>
+                            </select>
+                        </div>
+                        <button id="closeSettingsButton" class="w-full mt-4 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Done</button>
+                    </div>
+                </div>
+                
+                <div id="helpModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden">
+                    <div class="bg-gray-100 dark:bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <h2 class="text-3xl font-bold text-center text-cyan-600 dark:text-cyan-400 mb-4">How to Use the Serial Console</h2>
+                        <div class="space-y-4 text-left">
+                            <h3 class="text-xl font-semibold text-cyan-600 dark:text-cyan-400 mb-2 mt-4 border-b border-gray-300 dark:border-gray-600 pb-1">Getting Started</h3>
+                            <ol class="list-decimal list-inside pl-4 space-y-2 text-gray-700 dark:text-gray-300">
+                                <li><strong>Use a Compatible Browser:</strong> This tool requires the Web Serial API, available in browsers like <strong class="font-semibold text-gray-800 dark:text-gray-200">Google Chrome</strong> and <strong class="font-semibold text-gray-800 dark:text-gray-200">Microsoft Edge</strong>.</li>
+                                <li><strong>Connect Your Devkit:</strong> Physically connect your SiMa.ai Devkit to your computer using a USB cable.</li>
+                            </ol>
+                            <h3 class="text-xl font-semibold text-cyan-600 dark:text-cyan-400 mb-2 mt-4 border-b border-gray-300 dark:border-gray-600 pb-1">Connecting to Devices</h3>
+                            <ol class="list-decimal list-inside pl-4 space-y-2 text-gray-700 dark:text-gray-300">
+                                <li>Click the <strong>[+] New Connection</strong> button in the command palette.</li>
+                                <li>A browser pop-up will appear. Select the serial port for your Devkit and click "Connect". A new tab will be created for this connection.</li>
+                                <li>The console will automatically attempt to log you in. You can repeat this process to connect to multiple devices.</li>
+                            </ol>
+                            <h3 class="text-xl font-semibold text-cyan-600 dark:text-cyan-400 mb-2 mt-4 border-b border-gray-300 dark:border-gray-600 pb-1">Using the Interface</h3>
+                            <p class="text-gray-700 dark:text-gray-300">Interact with the <strong>active tab</strong>:</p>
+                            <ul class="list-disc list-inside pl-4 space-y-2 text-gray-700 dark:text-gray-300">
+                                <li><strong>Directly in the Terminal:</strong> Type any command into the terminal window and press <strong>Enter</strong>.</li>
+                                <li><strong>Command Palette:</strong> All buttons apply to the currently selected terminal tab.</li>
+                            </ul>
+                            <h3 class="text-xl font-semibold text-cyan-600 dark:text-cyan-400 mb-2 mt-4 border-b border-gray-300 dark:border-gray-600 pb-1">Disconnecting</h3>
+                            <p class="text-gray-700 dark:text-gray-300">Click the <strong>(x)</strong> on a tab to log out and close that specific connection.</p>
+                        </div>
+                        <button id="closeHelpButton" class="w-full mt-6 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Got it!</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Main UI Elements ---
+            const mainApp = document.getElementById('main-app');
+            const notSupported = document.getElementById('notSupported');
+            
+            if (!('serial' in navigator)) {
+                mainApp.classList.add('hidden');
+                notSupported.classList.remove('hidden');
+                return;
+            }
+
+            const newConnectionButton = document.getElementById('newConnectionButton');
+            const fullscreenButton = document.getElementById('fullscreenButton');
+            const themeToggleButton = document.getElementById('themeToggleButton');
+            const fullscreenWrapper = document.getElementById('fullscreen-wrapper');
+            const tabsContainer = document.getElementById('tabs-container');
+            const terminalsContainer = document.getElementById('terminal-container');
+            const initialMessage = document.getElementById('initial-message');
+            
+            const settingsButton = document.getElementById('settingsButton');
+            const settingsModal = document.getElementById('settingsModal');
+            const closeSettingsButton = document.getElementById('closeSettingsButton');
+            const baudRateSelect = document.getElementById('baudRate');
+            const flowControlSelect = document.getElementById('flowControl');
+            
+            const helpButton = document.getElementById('helpButton');
+            const helpModal = document.getElementById('helpModal');
+            const closeHelpButton = document.getElementById('closeHelpButton');
+
+            const commandPalette = document.getElementById('commandPalette');
+            const clearLogButton = document.getElementById('clearLogButton');
+            const loginButton = document.getElementById('loginButton');
+            const networkingButton = document.getElementById('networkingButton');
+            const diskSpaceButton = document.getElementById('diskSpaceButton');
+            const buildButton = document.getElementById('buildButton');
+            const logoutButton = document.getElementById('logoutButton');
+            const togglePaletteButton = document.getElementById('togglePaletteButton');
+            
+            // FIX: Get the new wrapper element to toggle its visibility
+            const paletteContentWrapper = document.getElementById('palette-content-wrapper');
+
+            const darkTheme = { background: '#000000', foreground: '#CCCCCC', cursor: '#CCCCCC' };
+            const lightTheme = { background: '#FFFFFF', foreground: '#333333', cursor: '#333333' };
+
+            let connections = [];
+            let activeConnectionId = null;
+
+            function getActiveConnection() {
+                return connections.find(c => c.id === activeConnectionId);
+            }
+
+            function switchTab(id) {
+                activeConnectionId = id;
+                connections.forEach(conn => {
+                    const isActive = conn.id === id;
+                    conn.tabElement.classList.toggle('active', isActive);
+                    conn.terminalContainer.style.display = isActive ? 'block' : 'none';
+                    if (isActive) {
+                        conn.fitAddon.fit();
+                        conn.term.focus();
+                    }
+                });
+            }
+
+            async function createNewConnection() {
+                try {
+                    const port = await navigator.serial.requestPort();
+                    const portInfo = port.getInfo();
+                    const openOptions = {
+                        baudRate: parseInt(baudRateSelect.value),
+                        flowControl: flowControlSelect.value,
+                    };
+                    await port.open(openOptions);
+
+                    const id = Date.now();
+                    const connection = {
+                        id,
+                        port,
+                        writer: port.writable.getWriter(),
+                        reader: null,
+                        readLoopPromise: null,
+                        isCheckingLogin: true,
+                        loginCheckBuffer: '',
+                        loginCheckTimeout: null,
+                    };
+
+                    // Create UI
+                    initialMessage.style.display = 'none';
+
+                    const tabElement = document.createElement('div');
+                    tabElement.className = 'tab';
+                    tabElement.dataset.id = id;
+                    
+                    const tabTitle = document.createElement('span');
+                    const vid = portInfo.usbVendorId ? portInfo.usbVendorId.toString(16).padStart(4, '0') : 'N/A';
+                    const pid = portInfo.usbProductId ? portInfo.usbProductId.toString(16).padStart(4, '0') : 'N/A';
+                    tabTitle.textContent = `Devkit (${vid}:${pid})`;
+                    
+                    const closeButton = document.createElement('button');
+                    closeButton.innerHTML = '&times;';
+                    closeButton.className = 'tab-close';
+                    
+                    tabElement.appendChild(tabTitle);
+                    tabElement.appendChild(closeButton);
+                    tabsContainer.appendChild(tabElement);
+
+                    const terminalContainer = document.createElement('div');
+                    terminalContainer.className = 'terminal-instance';
+                    terminalsContainer.appendChild(terminalContainer);
+
+                    const term = new Terminal({
+                        cursorBlink: true, convertEol: true, fontFamily: 'Fira Code, monospace', fontSize: 14,
+                        theme: document.documentElement.classList.contains('dark') ? darkTheme : lightTheme
+                    });
+                    const fitAddon = new FitAddon.FitAddon();
+                    term.loadAddon(fitAddon);
+                    term.open(terminalContainer);
+
+                    connection.term = term;
+                    connection.fitAddon = fitAddon;
+                    connection.tabElement = tabElement;
+                    connection.terminalContainer = terminalContainer;
+
+                    connections.push(connection);
+                    switchTab(id);
+
+                    term.write(`\r\n[SYSTEM] Connected successfully at ${openOptions.baudRate} baud.\r\n`);
+                    
+                    connection.readLoopPromise = listenForData(connection);
+
+                    term.onData(async (data) => {
+                        if (connection.writer) {
+                            try {
+                                await connection.writer.write(new TextEncoder().encode(data));
+                            } catch (error) {
+                                term.write(`\r\n[SYSTEM] Write error: ${error.message}\r\n`);
+                            }
+                        }
+                    });
+
+                    tabElement.addEventListener('click', () => switchTab(id));
+                    closeButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        disconnect(id);
+                    });
+                    
+                    // Auto-login check
+                    connection.isCheckingLogin = true;
+                    term.write('[SYSTEM] Checking login status...\r\n');
+                    await connection.writer.write(new TextEncoder().encode('\r'));
+                    connection.loginCheckTimeout = setTimeout(() => {
+                        if (connection.isCheckingLogin) {
+                            term.write('\r\n[SYSTEM] Login prompt not detected. Assuming logged in.\r\n');
+                            connection.isCheckingLogin = false;
+                        }
+                    }, 1500);
+
+                } catch (error) {
+                    console.error("Failed to connect:", error);
+                }
+            }
+
+            async function disconnect(id) {
+                const connIndex = connections.findIndex(c => c.id === id);
+                if (connIndex === -1) return;
+                
+                const connection = connections[connIndex];
+                connection.term.write('\r\n[SYSTEM] Logging out and disconnecting...\r\n');
+                await sendCommand('logout', connection);
+                await sleep(500);
+
+                clearTimeout(connection.loginCheckTimeout);
+
+                if (connection.reader) {
+                    try { await connection.reader.cancel(); } catch (e) {}
+                }
+                if (connection.writer) {
+                    try { await connection.writer.close(); } catch (e) {}
+                }
+                if (connection.readLoopPromise) {
+                    await connection.readLoopPromise;
+                }
+                if (connection.port) {
+                    try { await connection.port.close(); } catch (e) {}
+                }
+
+                connection.tabElement.remove();
+                connection.terminalContainer.remove();
+                connections.splice(connIndex, 1);
+
+                if (activeConnectionId === id) {
+                    if (connections.length > 0) {
+                        switchTab(connections[Math.max(0, connIndex - 1)].id);
+                    } else {
+                        activeConnectionId = null;
+                        initialMessage.style.display = 'flex';
+                    }
+                }
+            }
+
+            async function listenForData(connection) {
+                connection.reader = connection.port.readable.getReader();
+                try {
+                    while (true) {
+                        const { value, done } = await connection.reader.read();
+                        if (done) break;
+                        
+                        const text = new TextDecoder().decode(value, { stream: true });
+                        
+                        if (connection.isCheckingLogin) {
+                            connection.loginCheckBuffer += text;
+                            if (connection.loginCheckBuffer.includes('login:')) {
+                                connection.term.write('\r\n[SYSTEM] Login prompt detected. Attempting auto-login...\r\n');
+                                connection.isCheckingLogin = false;
+                                clearTimeout(connection.loginCheckTimeout);
+                                (async () => {
+                                    await sendCommand('sima', connection);
+                                    await sleep(500);
+                                    await sendCommand('edgeai', connection);
+                                })();
+                            }
+                        }
+                        connection.term.write(text);
+                    }
+                } catch (error) {
+                    console.log("Read loop canceled.", error);
+                } finally {
+                    if (connection.reader) connection.reader.releaseLock();
+                }
+            }
+
+            function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+            async function sendCommand(command, conn = getActiveConnection()) {
+                if (!conn || !conn.writer) {
+                    const activeConn = getActiveConnection();
+                    if (activeConn) activeConn.term.write('\r\n[SYSTEM] Not connected. Cannot send command.\r\n');
+                    return;
+                }
+                try {
+                    await conn.writer.write(new TextEncoder().encode(command + '\r'));
+                } catch (error) {
+                    conn.term.write(`\r\n[SYSTEM] Command send error: ${error.message}\r\n`);
+                }
+            }
+
+            newConnectionButton.addEventListener('click', createNewConnection);
+            
+            settingsButton.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+            closeSettingsButton.addEventListener('click', () => settingsModal.classList.add('hidden'));
+            
+            helpButton.addEventListener('click', () => helpModal.classList.remove('hidden'));
+            closeHelpButton.addEventListener('click', () => helpModal.classList.add('hidden'));
+
+            fullscreenButton.addEventListener('click', () => {
+                if (document.fullscreenElement) document.exitFullscreen(); else fullscreenWrapper.requestFullscreen();
+            });
+
+            document.addEventListener('fullscreenchange', () => setTimeout(() => {
+                connections.forEach(c => c.fitAddon.fit());
+            }, 100));
+            
+            themeToggleButton.addEventListener('click', () => {
+                const isDark = document.documentElement.classList.toggle('dark');
+                localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                const newTheme = isDark ? darkTheme : lightTheme;
+                connections.forEach(c => c.term.options.theme = newTheme);
+            });
+
+            function applyInitialTheme() {
+                const isDark = document.documentElement.classList.contains('dark');
+                const theme = isDark ? darkTheme : lightTheme;
+                connections.forEach(c => c.term.options.theme = theme);
+            }
+
+            clearLogButton.addEventListener('click', () => {
+                const activeConn = getActiveConnection();
+                if (activeConn) activeConn.term.clear();
+            });
+            loginButton.addEventListener('click', async () => {
+                await sendCommand('sima');
+                await sleep(500);
+                await sendCommand('edgeai');
+            });
+            networkingButton.addEventListener('click', () => sendCommand('ifconfig'));
+            diskSpaceButton.addEventListener('click', () => sendCommand('df -h'));
+            buildButton.addEventListener('click', () => sendCommand('cat /etc/buildinfo'));
+            logoutButton.addEventListener('click', () => sendCommand('logout'));
+            
+            // FIX: Simplified the logic to toggle the new content wrapper
+            togglePaletteButton.addEventListener('click', () => {
+                const isHidden = paletteContentWrapper.classList.toggle('hidden');
+                togglePaletteButton.textContent = isHidden ? '[Show]' : '[Hide]';
+                
+                setTimeout(() => {
+                    connections.forEach(c => c.fitAddon.fit());
+                }, 100);
+            });
+            
+            applyInitialTheme();
+        });
+    </script>
+</body>
+</html>
